@@ -72,9 +72,38 @@ chmod +w extracted/casper/filesystem.manifest
 chroot edit dpkg-query -W --showformat='${Package} ${Version}\n' > extracted/casper/filesystem.manifest
 chmod -w extracted/casper/filesystem.manifest
 mksquashfs edit extracted/casper/${TARGET_SYSTEM_NAME}.squashfs -comp xz
+
+# add autoinstall
+# this is executed automatically on first boot by subiquity
+# https://canonical-subiquity.readthedocs-hosted.com/en/latest/tutorial/providing-autoinstall.html
+# https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
+cat << EOF | tee extracted/autoinstall.yaml
+#cloud-config
+autoinstall:
+  version: 1
+  interactive-sections:
+    - network
+    - identity
+  early-commands:
+    - echo "Hello, World!"
+  storage:
+    layout:
+      name: lvm
+  locale: en_GB
+  keyboard:
+    layout: gb
+    variant: ""
+  source:
+    search-drivers: false
+    id: ubuntu-server 
+  late-commands:
+    - sed -ie 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=30/' /target/etc/default/grub
+    - echo "Goodbye, World!"
+EOF
+
+# recalculate md5s
 FS_SIZE=$(printf %s "$(du -sx --block-size=1 edit | cut -f1)")
 echo "${FS_SIZE}" > extracted/casper/${TARGET_SYSTEM_NAME}.size
-
 pushd extracted || exit 
 rm md5sum.txt
 find . -type f -print0 | xargs -0 md5sum | grep -v isolinux/boot.cat | tee md5sum.txt
