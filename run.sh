@@ -1,7 +1,7 @@
 #! /usr/bin/bash
 
 # define base image and container image tag
-UBUNTU_ISO=${1:-images/ubuntu-24.04.2-live-server-amd64.iso}
+UBUNTU_ISO=${1:-ubuntu-24.04.2-live-server-amd64.iso}
 UBUNTU_IMAGE_TAG=${2:-24.04}
 
 # build container image
