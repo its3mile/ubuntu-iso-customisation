@@ -1,0 +1,31 @@
+#cloud-config
+autoinstall:
+  version: 1
+  early-commands:
+    - [echo, "Hello, World!"]
+  storage:
+    layout:
+      name: lvm
+  locale: en_GB
+  keyboard:
+    layout: gb
+    variant: ""
+  source:
+    search-drivers: false
+    id: ubuntu-server
+  late-commands:
+    - [echo, "Goodbye, World!"]
+  user-data:
+    users:
+      - name: ubuntu
+        gecos: "Ubuntu User"
+        # this is insecure and only provided as a POC - please use a secret/generate this file dynamically
+        # password is `ubuntu`
+        # generated using `mkpasswd --method=SHA-512 --rounds=4096`
+        passwd: "$6$rounds=4096$oX/vQd0Q4Qqv.Mk0$r01/Er0ra8/7Aa0LYyJCSGbnVpaJbkskQfm9eurYtLGROdr81X73UyQEZO1b4zaDenOVosRYWit.RRdIlZIHK1"
+        groups: adm, cdrom, dip, lxd, plugdev, sudo, docker
+        shell: /bin/bash
+        lock_passwd: False
+    runcmd:
+      - |
+        systemctl status docker

@@ -1,5 +1,5 @@
-ARG UBUNTU_IMAGE_TAG=24.04
-FROM ubuntu:${UBUNTU_IMAGE_TAG}
+ARG BASE_UBUNTU_IMAGE_TAG=24.04
+FROM ubuntu:${BASE_UBUNTU_IMAGE_TAG}
 
 # install required packages for image customisation
 RUN apt-get update -y && \
@@ -26,15 +26,25 @@ RUN apt-get update -y && \
 RUN mkdir /workspace
 WORKDIR /workspace
 
-# copy in base image
+# copy in input iso
 # this must also persist for runtime (not just compile time)
-ARG UBUNTU_ISO
-ENV UBUNTU_ISO=${UBUNTU_ISO}
-COPY ${UBUNTU_ISO} .
+ARG INPUT_UBUNTU_ISO
+ENV INPUT_UBUNTU_ISO=${INPUT_UBUNTU_ISO}
+COPY ${INPUT_UBUNTU_ISO} .
+
+# specify output iso
+# this must also persist for runtime (not just compile time)
+ARG OUTPUT_UBUNTU_ISO
+ENV OUTPUT_UBUNTU_ISO=${OUTPUT_UBUNTU_ISO}
+
+# copy in customisations
+COPY customisations customisations
 
 # copy in build script
-COPY build.sh build.sh
-RUN chmod +x build.sh
+COPY build.sh .
+
+# make build script executable
+RUN chmod +x ./build.sh
 
 # execute build script
-CMD ["bash", "-c", "./build.sh $(basename ${UBUNTU_ISO})"]
+CMD ["bash", "-c", "./build.sh $(basename ${INPUT_UBUNTU_ISO}) $(basename ${OUTPUT_UBUNTU_ISO})"]

@@ -1,11 +1,12 @@
 #! /usr/bin/bash
 
-ISO=$1
+INPUT_ISO=$1
+OUTPUT_ISO=$2
 TARGET_SYSTEM_NAME=ubuntu-server-minimal
 
 # mount base image
 mkdir isomount
-mount --read-only "${ISO}" isomount
+mount --read-only "${INPUT_ISO}" isomount
 
 # extract base system
 mkdir extracted
@@ -33,6 +34,10 @@ mount --bind /dev/pts edit/dev/pts
 # copy in host's host file
 cp /etc/hosts edit/etc/
 
+# copy in target customisations
+mkdir -p edit/etc/customisations/target
+cp -r customisations/target edit/etc/customisations
+
 # chroot and make customisations
 chroot edit /bin/bash << EOF
 
@@ -42,8 +47,20 @@ export DEBIAN_FRONTEND=noninteractive
 # update apt sources
 apt-get update
 
-# install some custom packages
-apt-get install -y neofetch
+# add docker repository
+apt-get install ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+  tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update
+
+# install packages
+xargs --arg-file=/etc/customisations/target/packages.txt --no-run-if-empty \
+  apt-get install --no-install-recommends --yes
 
 # cleanup before chroot exit
 apt-get autoremove
@@ -77,29 +94,7 @@ mksquashfs edit extracted/casper/${TARGET_SYSTEM_NAME}.squashfs -comp xz
 # this is executed automatically on first boot by subiquity
 # https://canonical-subiquity.readthedocs-hosted.com/en/latest/tutorial/providing-autoinstall.html
 # https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
-cat << EOF | tee extracted/autoinstall.yaml
-#cloud-config
-autoinstall:
-  version: 1
-  interactive-sections:
-    - network
-    - identity
-  early-commands:
-    - echo "Hello, World!"
-  storage:
-    layout:
-      name: lvm
-  locale: en_GB
-  keyboard:
-    layout: gb
-    variant: ""
-  source:
-    search-drivers: false
-    id: ubuntu-server 
-  late-commands:
-    - sed -ie 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=30/' /target/etc/default/grub
-    - echo "Goodbye, World!"
-EOF
+cp customisations/live/autoinstall.yaml extracted/autoinstall.yaml
 
 # recalculate md5s
 FS_SIZE=$(printf %s "$(du -sx --block-size=1 edit | cut -f1)")
@@ -110,19 +105,23 @@ find . -type f -print0 | xargs -0 md5sum | grep -v isolinux/boot.cat | tee md5su
 popd || exit
 
 # extract boot code from master boot record partition from base system - this is always the first 446 bytes of the first sector
-dd bs=1 count=446 if="${ISO}" of=mbr.img
+dd bs=1 count=446 if="${INPUT_ISO}" of=mbr.img
 
 # extract efi partition from base system
-SECTOR_SIZE=$(fdisk -l ${ISO} | grep "Units" | awk '{print $8}')
-EFI_PART_OFFSET=$(fdisk -l ${ISO} | grep "EFI System" | awk '{print $2}')
-EFI_PART_SECTORS=$(fdisk -l ${ISO} | grep "EFI System" | awk '{print $4}')
-dd bs="${SECTOR_SIZE}" count="${EFI_PART_SECTORS}" skip="${EFI_PART_OFFSET}" if=${ISO} of=EFI.img
+SECTOR_SIZE=$(fdisk -l ${INPUT_ISO} | grep "Units" | awk '{print $8}')
+EFI_PART_OFFSET=$(fdisk -l ${INPUT_ISO} | grep "EFI System" | awk '{print $2}')
+EFI_PART_SECTORS=$(fdisk -l ${INPUT_ISO} | grep "EFI System" | awk '{print $4}')
+dd bs="${SECTOR_SIZE}" count="${EFI_PART_SECTORS}" skip="${EFI_PART_OFFSET}" if=${INPUT_ISO} of=EFI.img
 
 # create customised image
-REPORT=$(xorriso -indev "${ISO}" -report_el_torito cmd)
+REPORT=$(xorriso -indev "${INPUT_ISO}" -report_el_torito cmd)
 echo "${REPORT}" 
 
 ARGS=$(echo "${REPORT}" | sed -E "s#(-boot_image grub grub2_mbr=)[^[:space:]]*#\1mbr.img#" | sed -E "s#(-append_partition[[:space:]]+2[[:space:]]+[a-f0-9]+)[[:space:]]+--interval:imported_iso:[^[:space:]]+#\1 EFI.img #")
 echo $ARGS
 
-eval xorriso  -indev "${ISO}" --outdev MyDistribution.iso -map extracted / -- ${ARGS}
+eval xorriso  -indev "${INPUT_ISO}" --outdev "$(basename "${OUTPUT_ISO}")" -map extracted / -- ${ARGS}
+
+# set output iso permissions to the same as input ISO (instead of root)
+chown --reference="${INPUT_ISO}" "$(basename "${OUTPUT_ISO}")"
+chmod --reference="${INPUT_ISO}" "$(basename "${OUTPUT_ISO}")"
